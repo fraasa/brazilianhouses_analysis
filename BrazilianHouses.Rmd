@@ -1,0 +1,1745 @@
+---
+title: "The PiñacoDatas"
+subtitle: "Data Analysis for Business - Final Project"
+date: "20-06-2024"
+output:
+  html_document:
+    df_print: paged
+authors: Chiara Baldoni 285441, Sofia Bruni 285231, Francesca Romana Sanna 282491,
+  Mattia Sebastiani 288071
+header-includes:
+- \usepackage[explicit]{titlesec}
+- |
+  \newcommand{\raisedrulefill}[2][0ex]{\leaders\hbox{\rule[#1]{1pt}{#2}}\hfill}
+- |
+  \titleformat{\section}{\Large\bfseries}{\thesection. }{0em}{#1\,\raisedrulefill[0.4ex]{1pt}}
+editor_options:
+  markdown:
+    wrap: sentence
+---
+
+```{=tex}
+\begin{center}
+\noindent Chiara Baldoni 285441, Sofia Bruni 285231, Francesca Romana Sanna 282491, Mattia Sebastiani 288071
+\end{center}
+```
+### **Introduction to Brazilian Houses Analysis Project**
+
+**Chiara Baldoni 285441, Sofia Bruni 285231, Francesca Romana Sanna 282491, Mattia Sebastiani 288071**
+
+The dataset under analysis is the "Brazilian Houses" dataset, which contains information about houses for rent in different Brazilian cities.
+This project aims to predict rent prices in major Brazilian cities, providing crucial insights for new companies entering the real estate market.
+By identifying key factors influencing rental prices and segmenting the market geographically, we equip newcomers with the knowledge needed to make informed investment decisions and optimize their pricing strategies.
+
+```{=tex}
+\bigskip
+\bigskip
+```
+## 1. Data cleaning and preparation
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE) # sets report
+
+## Setup - libraries installation and import
+
+# Install packages
+# install.packages("dplyr")
+# install.packages("ggplot2")
+# install.packages("cowplot")
+# install.packages("corrplot")
+# install.packages("GGally")
+# install.packages("gridExtra")
+# install.packages("glmnet")
+# install.packages("MASS")
+# install.packages("caret")
+# install.packages("randomForest")
+# install.packages("mgcv")
+# install.packages("purrr")
+# install.packages("mice")
+# install.packages("tidyverse")
+# install.packages("factoextra")
+# install.packages("cluster")
+# install.packages("patchwork")
+# install.packages("RColorBrewer")
+# install.packages("scales")
+
+```
+
+```{r, include=FALSE}
+# Load the libraries
+library(dplyr)
+library(ggplot2)
+library(cowplot)
+library(corrplot)
+library(GGally)
+library(gridExtra)
+library(glmnet)
+library(MASS)
+library(caret)
+library(randomForest)
+library(mgcv)
+library(purrr)
+library(mice)
+library(tidyverse)
+library(factoextra)
+library(cluster)
+library(patchwork)
+library(RColorBrewer)
+library(scales)
+```
+
+We begin our analysis by loading the dataset and performing data cleaning and preparation steps to ensure the data is ready for the subsequent analysis and modeling.
+This includes handling missing values, duplicates, and outliers, as well as converting data types and renaming columns for clarity.
+
+### **Dataset description**
+
+The dataset consists of 10962 observations with 13, variables which provide information about the houses.
+In particular, there are 10 numerical variables and 3 categorical variables.
+
+```{r, include=FALSE}
+# Import the dataset
+raw_data <- read.csv("BrazHousesRent.csv")
+
+# Print the head and structure
+head(raw_data)
+str(raw_data)
+```
+
+### **Handling missing values and duplicates**
+
+```{r, include=FALSE, warning=FALSE}
+# Convert the floor variable into a number
+raw_data$floor <- as.numeric(raw_data$floor)
+
+# Convert the categorical variables into factors
+raw_data$city <- as.factor(raw_data$city)
+raw_data$animal <- as.factor(raw_data$animal)
+raw_data$furniture <- as.factor(raw_data$furniture)
+
+# Update column names for clarity
+raw_data <- raw_data %>% rename(hoa = hoa..R.., rent = rent.amount..R.., property_tax = property.tax..R.., fire_insurance = fire.insurance..R..)
+```
+
+```{r, echo=FALSE}
+# Search for missing values
+print("Null values before preprocessing")
+sapply(raw_data, function(x) sum(is.na(x))) # floor has 2461 missing values
+
+# Substitute NA values with 0 in the floor variable
+data <- raw_data[, ]
+data$floor[is.na(raw_data$floor)] <- 0
+
+# Count NA values after substitution
+na_count <- sum(is.na(data))
+cat("There are", na_count, "null values after preprocessing")
+
+```
+
+```{r, echo=FALSE}
+# Remove duplicate values if any
+data <- data[!duplicated(data),]
+
+# Count duplicates row and printing the result
+duplicates = sum(duplicated(data))
+cat("There are", duplicates, "duplicates rows before preprocessing")
+```
+
+We found 2461 missing values in the floor variable.
+We decided to interpret these missing values as houses having only the ground floor, as the ground floor is usually not counted in the floor number.
+Therefore, we replaced them with 0.
+
+Additionally, we found there no duplicate rows.
+
+After handling null values, here is what the cleaned dataset looks like:
+
+```{r, echo=FALSE, fig.width=2, fig.height=2, dev.args=list(pointsize=5)}
+# Summary of the cleaned dataframe
+summary(data)
+head(data)
+```
+
+### **Handling outliers**
+
+By looking at the summary, we noticed suspiciously high maximums values in the features of area, hoa (monthly homeowner association tax), property tax, and fire insurance, suggesting that some houses are not representative of the general market conditions.
+For each selected feature, we create boxplots and histogram density plots to visualize their distributions.
+
+For space reasons, we only show the plots for area.
+The plots for the other variables are similar to those shown below.
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, tidy=TRUE, fig.width=8, fig.height=3, fig.align='center'}
+# Create boxplots and histogram density plots for the selected features
+num_cols <- sapply(data, is.numeric)
+cat_cols <- sapply(data, is.factor)
+numcols1 <- c("area", "floor", "hoa", "rent", "property_tax", "fire_insurance")
+
+# Save the plots for future reference
+p_boxplot <- list()
+p_boxplot1 <- list()
+p_histogram <- list()
+p_histogram1 <- list()
+
+# Create the plots
+for (col in names(data[numcols1])) {
+  # Boxplot
+  p_boxplot[[col]] <- ggplot(data, aes(y = !!sym(col))) +
+    geom_boxplot(fill = "purple", alpha = 0.5, outlier.color = "magenta",
+                 outlier.shape = 1) +
+    labs(title = paste0(col," Boxplot"), x = "") + 
+    theme_bw()
+  
+  # Histogram
+  p_histogram[[col]] <- ggplot(data, aes(x = !!sym(col))) +
+    geom_histogram(fill = "purple", alpha = 0.5) +
+    geom_freqpoly(color = "black", linewidth = 0.4) +
+    labs(title = paste0(col," Hist"), y = "", x = "") +
+    theme_bw()
+  
+  # Boxplot with data scaled logarithmically
+  p_boxplot1[[col]] <- ggplot(log(data[,numcols1]), aes(y = !!sym(col))) +
+    geom_boxplot(fill = "purple", alpha = 0.5, outlier.color = "magenta",
+                 outlier.shape = 1) +
+    labs(title = paste0("Log Scaled Boxplot ", col), x = "") +
+    theme_bw()
+  
+  # Histogram with data scaled logarithmically
+  p_histogram1[[col]] <- ggplot(log(data[,numcols1]), aes(x = !!sym(col))) +
+    geom_histogram(fill = "purple", alpha = 0.5) +
+    geom_freqpoly(color = "black", linewidth = 0.4) +
+    labs(title = paste0("Log Scaled Hist ", col), y = "", x = "") +
+    theme_bw() 
+  
+  # Extract ggplot objects from lists
+  plot1 <- p_boxplot[[col]]
+  plot2 <- p_histogram[[col]]
+  plot3 <- p_boxplot1[[col]]
+  plot4 <- p_histogram1[[col]]
+}  
+
+# Extract area ggplot objects from lists for furure reference
+  plot1 <- p_boxplot[["area"]]
+  plot2 <- p_histogram[["area"]]
+  plot3 <- p_boxplot1[["area"]]
+  plot4 <- p_histogram1[["area"]]
+  
+# Use the area extracted ggplot objects
+  print(plot_grid(plot1, plot2, plot3, plot4, ncol = 4))
+
+```
+
+The plots revealed, as suspected, right-skewed distributions, indicating the presence of high-value outliers.
+To better understand the data without the distortions caused by these extreme values, we considered generating log-scaled versions of the plots to normalize the distribution.
+However, this approach might have underestimated the magnitude of the outliers, and in turn destabilize our results and the accuracy of our models.
+Therefore, we decide to remove the outliers.
+
+```{r, echo=FALSE}
+# Remove outliers from the dataset, as some of the house data appears to be questionable
+
+# Define columns to inspect
+cols <- c("area", "hoa", "rent", "property_tax")
+data_out <- data[, cols]
+
+# Employ z-scores method
+z_scores <- apply(data_out, 2, 
+                  function(x) abs((x - mean(x, na.rm = TRUE)) / sd(x, na.rm = TRUE)))
+
+# Detect rows with at least one z-score greater than 3, which are considered outliers
+outlier_rows <- row.names(data_out)[apply(z_scores, 1, function(x) any(x > 3))]
+
+# Print the number of outliers detected 
+cat("Number of outliers detected:", length(outlier_rows), "\n")
+
+# Print the most common rent value among the outliers
+cat("Most common rent value among the outliers:", 
+    names(sort(table(data[rownames(data) %in% outlier_rows, "rent"]), 
+               decreasing = TRUE)[1]), "\n")
+
+# Print the frequency of the most common rent value among the outliers
+cat("Frequency of most common rent value among the outliers:", 
+    max(table(data[rownames(data) %in% outlier_rows, "rent"]), "\n"))
+
+# Create the final dataframe without the outliers
+final_data <- data[!(rownames(data) %in% outlier_rows), ]
+```
+
+```{r, echo = FALSE, fig.width = 10, fig.height = 5, fig.align = 'center'}
+# Create boxplots and Q-Q plots of the rent distribution with and without outliers, to visualize the difference
+
+par(mfrow=c(2,2))
+options(repr.plot.width=12, repr.plot.height=8)
+boxplot(data$rent, col = "purple", horizontal = T, 
+        main = "Rent Before Removing Outliers")
+qqnorm(data$rent)
+
+boxplot(final_data$rent, col = "green", horizontal = T,
+        main = "Rent After Removing Outliers")
+qqnorm(final_data$rent)
+```
+
+In total, 268 houses with extreme values were excluded from our dataset.
+We decided to use the z-score method with a threshold of 3 to identify and remove outliers, ensuring that we addressed only the most extreme outliers without eliminating significant portions of data.
+In doing so, we noticed that the most of the removed houses had a common rent value of 15,000, suggesting potential data entry errors.
+To confirm the effectiveness of our chosen threshold, we utilized Q-Q plots, which are tools for assessing whether the data distribution follows the expected normal distribution.
+The Q-Q plots demonstrated that deviations from normality primarily occurred at data points with z-scores beyond our set threshold.
+We also tested different thresholds.
+Lowering the threshold to 1 or 2 would have unnecessarily excluded a large portion of viable data, while a higher threshold like 4 would not sufficiently filter out potential errors.
+Thus, a threshold of 3 effectively balanced the need to remove outliers and retain significant data.
+
+```{r, include=FALSE}
+# Density plots of the selected features after removing outliers
+
+# Define the columns to inspect
+cols <- c("area", "hoa", "rent", "property_tax")
+
+# Create the density plots
+p_density <- list()
+for (col in cols) {
+  p_density[[col]] <- ggplot(final_data, aes(x = !!sym(col))) +
+    geom_density(fill = "purple", alpha = 0.5) +
+    labs(title = paste0(col, " density plot"), x = col, y = "density") +
+    theme_bw()
+}
+
+# Extract ggplot objects from the list for future reference
+plot1 <- p_density[["area"]]
+plot2 <- p_density[["hoa"]]
+plot3 <- p_density[["rent"]]
+plot4 <- p_density[["property_tax"]]
+
+# Use the extracted ggplot objects
+print(plot_grid(plot1, plot2, plot3, plot4, ncol = 4))
+```
+
+```{=tex}
+\bigskip
+\bigskip
+```
+## 2. Exploratory Data Analysis
+
+After cleaning the data, we proceed with Exploratory Data Analysis (EDA).
+We start by analyzing the distribution of categorical variables, followed by a correlation analysis of numerical variables and simple regression models to identify the most significant predictors of rent prices.
+This step is crucial for understanding the relationships between variables, identifying patterns, and selecting the most impactful features for building robust predictive models in the next phase of our analysis.
+
+### **Categorical variables analysis**
+
+### Distribution analysis
+
+We assess whether the categorical variables of furniture, animal policy, and city have any impact rent prices.
+For each feature, we create violin plots complemented by pie charts and histograms.
+Violin plots are particularly effective for this type of analysis because they merge the attributes of box plots with density plots, illustrating the distribution of rent prices and visually representing the probability density at various values.
+This approach allows us to see not only the median rent prices and interquartile ranges, but also the overall distribution shapes.
+
+```{r, echo=FALSE, message=FALSE, fig.width=10, fig.height=6, fig.align='center'}
+
+# Create violin plots, pie charts, and histograms for the categorical variables
+
+# Custom palettes
+category_palette <- c("furnished" = "purple", "not furnished" = "magenta", 
+                      "acept" = "blue", "not acept" = "green")
+city_palette <- c("São Paulo" = "purple", "Rio de Janeiro" = "pink", 
+                  "Porto Alegre" = "magenta", "Campinas" = "blue", 
+                  "Belo Horizonte" = "green")
+
+# Pie charts
+p_furniture_pie <- ggplot(final_data) +
+  geom_bar(aes(x = "", fill = furniture), width = 1, stat = "count") +
+  coord_polar(theta = "y") +
+  # scale_fill_manual(values = category_palette) +
+  theme_void() +
+  labs(fill = "furniture")
+
+p_animal_pie <- ggplot(final_data) +
+  geom_bar(aes(x = "", fill = animal), width = 1, stat = "count") +
+  coord_polar(theta = "y") +
+  # scale_fill_manual(values = category_palette) +
+  theme_void() +
+  labs(fill = "animal")
+
+p_city_hist <- ggplot(final_data, aes(x = city, fill = city)) +
+  geom_bar() +
+  # scale_fill_manual(values = city_palette) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Violin plots
+p_furniture_violin <- ggplot(final_data, aes(x = furniture, y = rent, fill = furniture)) +
+  geom_violin() +
+  # scale_fill_manual(values = category_palette) +
+  labs(title = "Rent Distribution by Furniture", x = "", y = "Rent") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 0.5))
+
+p_animal_violin <- ggplot(final_data, aes(x = animal, y = rent, fill = animal)) +
+  geom_violin() +
+  # scale_fill_manual(values = category_palette) +
+  labs(title = "Rent Distribution by Animal Policy", x = "", y = "Rent") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 0.5))
+
+p_city_violin <- ggplot(final_data, aes(x = city, y = rent, fill = city)) +
+  geom_violin() +
+  # scale_fill_manual(values = city_palette) +
+  labs(title = "Rent Distribution by City", x = "", y = "Rent") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 0.5))
+
+# Arrange the plots in three rows with their respective pie chart or histogram
+row1 <- arrangeGrob(p_furniture_violin, p_city_violin, p_animal_violin, ncol = 3)
+row2 <- arrangeGrob( p_furniture_pie, p_city_hist, p_animal_pie, ncol = 3)
+
+# Combine all rows into one layout
+final_layout <- grid.arrange(row1, row2, ncol = 1)
+
+print(final_layout)
+```
+
+The violin plot for furniture revealed the significant impact of furnishing status on rent prices, with furnished homes commanding higher rents, evident from their broader distribution at the upper end.
+This observation aligns with the pie chart, which shows a larger market share of unfurnished homes, as they are more affordable.
+The violin plot for cities revealed that São Paulo has higher rents compared to other cities, marked by a higher median and a broader distribution, suggesting a more expensive and varied rental market.
+The histogram supports this, showing that São Paulo has a wider range of rent prices due to the presence of both low-end and luxury properties.
+In contrast, the allowance of animals does not have a significant impact on rent prices, as indicated by the similar distribution shapes in both categories.
+
+### Anova analysis for city
+
+We perform an Analysis of Variance (ANOVA) test to confirm whether the city variable significantly influences rent prices.
+The ANOVA test compares the means of rent prices across different cities to determine if the differences are statistically significant.
+
+```{r, echo=FALSE}
+# Perform ANOVA for rent by city
+anova_result <- aov(rent ~ city, data = final_data)
+summary(anova_result)
+```
+
+The results showed a p-value less than 0.05, indicating that the city variable significantly influences rent prices and confirming our earlier observation.
+
+### Further distribution analysis by city
+
+We further explore the impact of location on rent prices by creating density plots of rent distributions by city with dashed average rent lines for each city, and density plots of rent prices by city and furniture status.
+In doing so, we highlight the variations in rent prices across locations and compare the distributions of rent prices for furnished and unfurnished homes in different cities.
+
+```{r, include=FALSE, message=FALSE}
+# Rent distributions by city
+
+# Calculate the average rent for each city
+mu <- data %>%
+  filter(rent < 20000) %>%
+  group_by(city) %>%
+  summarise(avg_rent = mean(rent))  # Calculate the average rent, not area
+
+# Custom palette for cities
+custom_palette <- c("São Paulo" = "purple", "Rio de Janeiro" = "pink", 
+                    "Porto Alegre" = "magenta", "Campinas" = "blue", 
+                    "Belo Horizonte" = "green")
+
+# Plot the rent distributions by city with corrected average lines
+options(repr.plot.width = 12, repr.plot.height = 7)
+data %>%
+  ggplot(aes(x = rent, color = city)) +
+  geom_density(lwd = 0.8) +
+  # scale_color_manual(values = custom_palette) +
+  geom_vline(data = mu, aes(xintercept = avg_rent, color = city),
+             linetype = "dashed", lwd = 0.8) +
+  labs(title = "Rent distributions by city", x = "rent", y = "density") +
+  theme_light(base_size = 17) +
+  theme(legend.position = "bottom", legend.title = element_text(size = 12),
+        legend.text = element_text(size = 12))
+```
+
+```{r, include=FALSE}
+# Rent distributions by city and furniture status
+
+# Custom palettes
+city_palette <- c("São Paulo" = "purple", "Rio de Janeiro" = "pink", 
+                  "Porto Alegre" = "magenta", "Campinas" = "blue", 
+                  "Belo Horizonte" = "green")
+
+furniture_palette <- c("furnished" = "purple", "not furnished" = "magenta")
+
+# Facet grid for rent distribution by city and furniture status
+ggplot(final_data, aes(x = rent, fill = furniture)) +
+  geom_density(alpha = 0.5) +
+  facet_grid(city ~ furniture) +
+  scale_fill_manual(values = furniture_palette) +
+  theme_light(base_size = 12) +
+  labs(title = "Density Plot of Rent by City and Furniture Status", x = "Rent", y = "Density", fill = "Furniture Status") +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    strip.background = element_blank(),  # Remove the grey background
+    strip.text.y = element_text(size = 10, angle = 0, hjust = 1, color = "black"),
+    strip.text.x = element_text(size = 10, color = "black")
+  )
+```
+
+```{r, echo=FALSE, fig.width=15, fig.height=8, fig.align='center'}
+# Rent distributions by city
+
+# Calculate the average rent for each city
+mu <- data %>%
+  filter(rent < 20000) %>%
+  group_by(city) %>%
+  summarise(avg_rent = mean(rent))  # Calculate the average rent, not area
+
+# Custom palette for cities
+custom_palette <- c("São Paulo" = "purple", "Rio de Janeiro" = "pink", 
+                    "Porto Alegre" = "magenta", "Campinas" = "blue", 
+                    "Belo Horizonte" = "green")
+
+# Plot the rent distributions by city with corrected average lines
+p1 <- data %>%
+  ggplot(aes(x = rent, color = city)) +
+  geom_density(lwd = 0.8) +
+  # scale_color_manual(values = custom_palette) +
+  geom_vline(data = mu, aes(xintercept = avg_rent, color = city),
+             linetype = "dashed", lwd = 0.8) +
+  labs(title = "Rent distributions by city", x = "rent", y = "density") +
+  theme_light(base_size = 17) +
+  theme(legend.position = "bottom", legend.title = element_text(size = 12),
+        legend.text = element_text(size = 12))
+
+# Rent distributions by city and furniture status
+
+# Custom palettes
+city_palette <- c("São Paulo" = "purple", "Rio de Janeiro" = "pink", 
+                  "Porto Alegre" = "magenta", "Campinas" = "blue", 
+                  "Belo Horizonte" = "green")
+
+furniture_palette <- c("furnished" = "purple", "not furnished" = "magenta")
+
+# Facet grid for rent distribution by city and furniture status
+p2 <- ggplot(final_data, aes(x = rent, fill = furniture)) +
+  geom_density(alpha = 0.5) +
+  facet_grid(city ~ furniture) +
+  # scale_fill_manual(values = furniture_palette) +
+  theme_light(base_size = 12) +
+  labs(title = "Density Plot of Rent by City and Furniture Status", x = "Rent", y = "Density", fill = "Furniture Status") +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    strip.background = element_blank(),  # Remove the grey background
+    strip.text.y = element_text(size = 10, angle = 0, hjust = 1, color = "black"),
+    strip.text.x = element_text(size = 10, color = "black"),
+    legend.position = "none"
+  )
+
+# Arrange the plots into one layout
+final_layout <- grid.arrange(p1, p2, ncol = 2)
+
+print(final_layout)
+```
+
+The plot on the left revealed significant variations in rent prices across locations, with São Paulo having the highest average rent, as indicated by the dashed lines, and a broader distribution of prices compared to other cities, as indicated by the wider density plot.
+The plot on the right showed that furnished homes generally have higher rents than unfurnished homes across all cities.
+Again, São Paulo has the highest rent prices for both furnished and unfurnished homes, followed by Rio de Janeiro, Porto Alegre, Campinas, and Belo Horizonte.
+This suggests that the city has a more significant impact on rent prices than furniture status, as the rent differences between cities are more pronounced than those between furnished and unfurnished homes within the same city.
+These aligns with our earlier findings and confirms the importance of location.
+
+### **Numerical variables analysis**
+
+### Correlation analysis
+
+We measure the correlation between numerical variables in our dataset to assess their relevance in predicting rent prices.
+We create a correlation matrix and a heatmap to visualize their linear relationships and identify significant predictors.
+
+```{r, include=FALSE}
+# Create a correlation matrix
+
+# Create a correlation matrix  with numerical variables
+corr_matrix <- cor(select_if(final_data, is.numeric))
+
+# Plot the heatmap
+layout(matrix(c(1,1), nrow = 2, ncol = 2), widths = 5, heights = 5)
+corr <- corrplot(corr_matrix, method ="color", order = "hclust",
+                 addCoef.col = "#1a1a1a", tl.col = "#1a1a1a",
+                 col = colorRampPalette(c("#313695", "#4575B4", "#74ADD1", "#E0F3F8", "pink", "#D73027"))(200))
+```
+
+```{r, echo=FALSE, fig.width=5, fig.align='center', fig.height=6}
+# Create a correlation matrix with the top 4 most correlated variables with rent
+
+# Check the correlation values for the target variable rent
+#corr_matrix["rent",]
+
+# Examine the correlation values for the target variable rent
+rent_correlations <- corr_matrix["rent",]
+
+
+# Sort the correlation values in descending order and excluding the target variable
+sorted_correlations <- sort(rent_correlations[-which(names(rent_correlations) == "rent")], decreasing = TRUE)
+knitr::kable(sorted_correlations, caption = "Variables Correlation to Rent")
+
+
+# Create a new correlation matrix with the sorted variables
+sorted_corr_matrix <- corr_matrix[c("rent", names(sorted_correlations)), c("rent", names(sorted_correlations))]
+
+# Plot the new heatmap of the most correlated variables in descending order
+layout(matrix(c(1,1), nrow = 2, ncol = 2), widths = 5, heights = 5)
+corrplot(sorted_corr_matrix, method = "color", order = "original",
+         addCoef.col = "#1a1a1a", tl.col = "#1a1a1a",
+         col = colorRampPalette(c("#313695", "#4575B4", "#74ADD1",   "#E0F3F8","pink", "#D73027"))(200))
+```
+
+We sorted the correlation values in descending order (excluding the target variable) to identify the top four variables most correlated with rent.
+The heatmap revealed that fire insurance has a near-perfect correlation with rent (0.99), followed by area (0.65), property tax (0.57), and rooms (0.53).
+These variables are expected to have a significant impact on rent prices and will serve as the basis for our predictive model in the next phase of our analysis.
+While it is expected that rooms and area are positively correlated with rent, as larger properties tend to have more rooms and higher rents, the remarkably high correlation with fire insurance is surprising and warrants further investigation.
+This correlation might indicate that the quality and location of the property significantly influence rent prices, making fire insurance a crucial predictor of rent amounts.
+Similarly, the correlation with property tax is intriguing, as higher property taxes might indicate more luxurious properties with higher rents.
+
+In addition, apart from rent, area shows strong correlations with fire insurance, property tax, and rooms.
+Fire insurance also shows a strong correlation with property tax and rooms.
+However, these findings do not raise multicollinearity issues, as the only two highly correlated variables that surpass a 0.8 correlation threshold are fire insurance and our target.
+Therefore, there is no need to remove any variables from the dataset.
+
+### Simple regression analysis
+
+We proceed investigating the relationships between the top four correlated variables we identified and rent prices, as the other matrix variables are not as significant, using simple regression models.
+We create scatter plots with regression lines to display these linear relationships, using a 95% confidence interval.
+This interval is standard in statistical analysis, providing a reliable range within which we expect the true regression line to lie 95% of the time.
+
+```{r, echo=FALSE, warning=FALSE, message= FALSE, fig.width=10, fig.height=8, fig.align='center'}
+# Fit a simple regression model to the numerical top 4 correlated variables to the target "rent"
+
+# Find the top 4 correlated variables with rent
+top_correlated_vars <- sort(corr_matrix["rent",], decreasing = TRUE)[2:5]
+top_correlated_vars_list <- names(top_correlated_vars)
+target <- "rent"
+
+# Fit a simple regression with a confident interval at 95% shown
+p_list <- list() 
+for (i in 1:length(top_correlated_vars_list)) {
+  p <- ggplot(final_data, aes(x = !!sym(top_correlated_vars_list[i]), 
+                              y = !!sym(target))) +
+    geom_point(cex = 0.3, pch = 1, stroke = 2, color="purple") +
+    geom_smooth(method = "lm", color = "magenta", lwd = 1, formula = y ~ x, 
+                se = TRUE, level = 0.95, fill = "grey", alpha = 1, linewidth = 1) + 
+    theme_light(base_size = 10) +
+    ggtitle(paste("Scatter Plot of", top_correlated_vars_list[i], "vs", target))
+  
+  p_list[[i]] <- p
+}
+
+# Show plots
+grid.arrange(grobs = p_list, ncol = 2)
+```
+
+The regression lines indicated positive correlations for all variables.
+Fire insurance showed the strongest and most precise relationship with rent, with closely clustered points and a narrow confidence interval, suggesting highly reliable predictions even when working as a single predictor.
+Area and property tax also influence rent but exhibit more variability, making their alone predictions less precise compared to fire insurance.
+The number of rooms showed significant variability, as indicated by the broad confidence interval, suggesting other factors may also play a substantial role in determining rent prices and should be investigated further.
+
+### **Multivariate analysis**
+
+Additionally, we conduct a multivariate analysis between the variables that mostly impact rent prices to understand their combined effects.
+We create boxplots to visualize the distribution of fire insurance, property tax, and area across different cities.
+We do not include the animal policy and number of rooms in this analysis as they showed less significant correlations with rent prices compared to the other variables in the previous phases.
+We also don't include the furniture status as it relates more to the rent prices themselves rather than the other variables.
+
+```{r, echo=FALSE, warning=FALSE, message= FALSE, fig.width=10, fig.height=10, fig.align='center',}
+# Create boxplots for fire insurance, property tax, and area by city
+
+# Custom palette
+city_palette <- c("São Paulo" = "purple", "Rio de Janeiro" = "pink",
+"Porto Alegre" = "magenta", "Campinas" = "blue",
+"Belo Horizonte" = "green")
+
+# Fire Insurance by City
+p_fire_city <- ggplot(final_data, aes(x = city, y = fire_insurance, fill = city)) +
+geom_boxplot() +
+# scale_fill_manual(values = city_palette) +
+labs(title = "Fire Insurance by City", x = "City", y = "Fire Insurance", fill = "City") +
+theme_minimal()
+
+# Property Tax by City
+p_tax_city <- ggplot(final_data, aes(x = city, y = property_tax, fill = city)) +
+geom_boxplot() +
+# scale_fill_manual(values = city_palette) +
+labs(title = "Property Tax by City", x = "City", y = "Property Tax", fill = "City") +
+theme_minimal() +   ylim(0, 4000)
+
+
+
+# Area by City
+p_area_city <- ggplot(final_data, aes(x = city, y = area, fill = city)) +
+geom_boxplot() +
+# scale_fill_manual(values = city_palette) +
+labs(title = "Area by City", x = "City", y = "Area", fill = "City") +
+theme_minimal() +  ylim(0, 1000)
+
+
+
+# Arrange the plots in one layout
+grid.arrange(p_fire_city, p_tax_city, p_area_city, ncol = 1)
+```
+
+The boxplots showed that São Paulo has the highest fire insurance, property tax, and area values, indicating that it is the most expensive city in terms of rent prices.
+This aligns with our previous findings that São Paulo has the highest average rent prices compared to other cities.
+Furthermore, we can observe that the distributions of fire insurance, property tax, and area vary significantly across cities, suggesting that location plays an important role in determining these variables and, consequently, rent prices.
+For instance, cities like Belo Horizonte and Campinas generally showed lower values in these variables compared to São Paulo, reflecting their lower rent prices.
+
+```{=tex}
+\bigskip
+\bigskip
+```
+## 4. Testing on lower dimentional models
+
+### **AIC model selection**
+
+Before proceeding with the full rent predictive model aimed at providing the best result, we test some lower-dimensional models to investigate our correlation matrix and simple regression model findings that fire insurance and area are the most significant predictors of rent prices.
+
+The lower dimensional models we test are: 1.
+The top 2 AIC model, which includes only the two most correlated variables with rent, fire insurance and area 2.
+The no fire insurance AIC model, which includes all variables except fire insurance 3.
+The complete AIC model, which includes all variables 4.
+The feature engineering AIC model, which includes interaction terms between the variables.
+In particular, we include interaction terms between area and rooms, as they showed the second-highest correlation in the matrix, and between HOA (monthly homeowners association tax) and property tax to capture the impact of these combined fees on rent prices.
+
+Since AIC and BIC perform similarly, we chose AIC to select the best model as we don't have so many predictors to prefer a more penalized and strict approach.
+Unlike BIC, AIC avoids over-penalizing predictors, ensuring the inclusion of critical features like fire insurance and providing more flexibility.
+We leverage this flexibility to evaluate models with and without fire insurance, given its near-perfect correlation with rent prices, to confirm their robustness.
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+# Set seed for reproducibility
+set.seed(123)
+
+# Function to split data into training and testing sets
+split_data <- function(data, train_ratio = 0.8) {
+  indices <- sample(seq_len(nrow(data)), size = train_ratio * nrow(data))
+  list(train = data[indices, ], test = data[-indices, ])
+}
+
+# Function to calculate R-squared
+calc_r_squared <- function(actual, predicted) {
+  mean_actual <- mean(actual)
+  total_ss <- sum((actual - mean_actual)^2)
+  residual_ss <- sum((actual - predicted)^2)
+  r_squared <- 1 - (residual_ss / total_ss)
+  return(r_squared)
+}
+
+# Function to evaluate model performance
+evaluate_model <- function(model, test_features, test_target) {
+  predictions <- predict(model, newdata = test_features)
+  rmse <- sqrt(mean((predictions - test_target)^2))
+  r_squared <- calc_r_squared(test_target, predictions)
+  return(list(RMSE = rmse, R2 = r_squared))
+}
+
+# Function to add model performance to dataframe
+add_performance <- function(df, model_name, performance) {
+  df <- rbind(df, data.frame(Model = model_name, RMSE = performance$RMSE, R2 = performance$R2))
+  return(df)
+}
+
+# Split the data
+data_split <- split_data(final_data)
+train_data <- data_split$train
+test_data <- data_split$test
+
+# Define predictors and target variable
+predictors <- setdiff(names(final_data), "rent")
+train_x <- train_data[, predictors]
+train_y <- train_data$rent
+test_x <- test_data[, predictors]
+test_y <- test_data$rent
+
+# Initialize performance dataframes
+performance_df <- data.frame(Model = character(), RMSE = numeric(), R2 = numeric(), stringsAsFactors = FALSE)
+aic_df <- data.frame(Model = character(), AIC = numeric(), RMSE = numeric(), R2 = numeric(), stringsAsFactors = FALSE)
+
+# Create models using stepwise AIC
+
+models <- list(
+  "Top 2 AIC Model" = stepAIC(lm(rent ~ fire_insurance + area, data = train_data), direction = "both", trace = FALSE),
+  "No fire_insurance AIC Model" = stepAIC(lm(rent ~ hoa + property_tax + area + rooms + city + bathroom + floor + parking.spaces + furniture + animal, data = train_data), direction = "both", trace = FALSE),
+  "Complete AIC Model" = stepAIC(lm(rent ~ ., data = train_data), direction = "both", trace = FALSE),
+  "Feature Eng AIC Model" = stepAIC(lm(rent ~ hoa*property_tax + area*rooms + city + bathroom + parking.spaces + fire_insurance + furniture, data = train_data), direction = "both", trace = FALSE)
+)
+```
+
+We split the data into training and testing sets, create the models using stepwise AIC, and evaluate their performance using Root Mean Squared Error (RMSE) and R-squared (R2) values.
+The RMSE measures the average difference between the predicted and actual rent prices, thus the lower the RMSE, the better the model performance, while the R2 value indicates the proportion of the variance in rent prices that is predictable from the independent variables, thus the closer to 1, the better the model fits the data.
+We create plots to compare the RMSE, R2, and AIC values of the models, as well as histograms and Q-Q plots of the residuals to assess their normality and reliability.
+
+```{r, echo=FALSE,, warning=FALSE, message=FALSE, fig.width=10, fig.height=6, fig.align='center'}
+# Evaluate each model and store performance
+for (model_name in names(models)) {
+  model <- models[[model_name]]
+  performance <- evaluate_model(model, test_x, test_y)
+  performance_df <- add_performance(performance_df, model_name, performance)
+  aic_df <- rbind(aic_df, data.frame(Model = model_name, AIC = AIC(model), RMSE = performance$RMSE, R2 = performance$R2))
+}
+
+# Sort and convert columns for plotting
+aic_df$RMSE <- as.numeric(aic_df$RMSE)
+aic_df$R2 <- as.numeric(aic_df$R2)
+aic_df <- aic_df[order(aic_df$RMSE), ]
+
+# Plotting RMSE
+plot_rmse <- ggplot(aic_df, aes(x = reorder(Model, RMSE), y = RMSE, fill = Model)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = round(RMSE, 2)), vjust = -0.5, size = 3) +
+  labs(title = "Model Performance - RMSE", y = "RMSE", x = "Model") +
+  theme_light(base_size = 13) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(fill = FALSE)
+
+# Plotting R-squared
+plot_r_squared <- ggplot(aic_df, aes(x = reorder(Model, R2), y = R2, fill = Model)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = round(R2, 5)), vjust = -0.5, size = 3) +
+  labs(title = "Model Performance - R-squared", y = "R2", x = "Model") +
+  theme_light(base_size = 13) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(fill = FALSE)
+
+# Plotting AIC values
+plot_aic <- ggplot(aic_df, aes(x = reorder(Model, AIC), y = AIC, fill = Model)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = round(AIC, 2)), vjust = -0.5, size = 3) +
+  labs(title = "Model AIC Values", y = "AIC", x = "Model") +
+  theme_light(base_size = 13) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(fill = FALSE)
+
+# Arrange plots
+grid.arrange(plot_rmse, plot_r_squared, ncol = 2)
+```
+
+```{r, include=FALSE}
+# Plotting residuals and QQ plots for each model
+par(mfrow = c(2, 2))
+
+for (model_name in names(models)) {
+  model <- models[[model_name]]
+  residuals <- residuals(model)
+  hist(residuals, breaks = 20, main = paste("Residuals -", model_name), xlab = "Residuals")
+  qqnorm(residuals, main = paste("QQ Plot -", model_name))
+  qqline(residuals)
+}
+
+# Reset layout
+par(mfrow = c(1, 1))
+```
+
+The plots revealed the FE Model is the best model, showing the lowest RMSE and highest R² value, explaining almost 99% of the variability.
+The interaction terms in this model provided the best predictive performance, indicating that the combined effects of these variables might have slightly reduced noise.
+The Q-Q plots for this model displayed the most normally distributed residuals, making it again the most reliable model.
+Additionally, feature engineering showed that the animal feature was not helpful for prediction.
+In contrast, the No Fire Insurance AIC Model performed poorly, with the highest RMSE and lowest R² values, confirming the crucial importance of fire insurance as a predictor of rent prices.
+The Top 2 AIC Model, which includes only fire insurance and area, had the second-lowest RMSE and R² values, further confirming that these two variables are significant predictors.
+
+```{=tex}
+\bigskip
+\bigskip
+```
+## 5. Finding the best model
+
+In this part of the code we create a function that computes the R-squared value, which measures how well the model's predictions fit the actual data.
+Then another one that encodes categorical variables into binary (one-hot) encoded matrices and then combines them with numeric data.
+After that we have split the dataset into training and testing sets based on a given ratio (default is 80% training and 20% testing).
+
+```{r, include=FALSE}
+# Set seed for reproducibility
+set.seed(123)
+
+# Function to calculate R-squared
+calculate_r_squared <- function(actual, predicted) {
+  mean_actual <- mean(actual)
+  total_sum_squares <- sum((actual - mean_actual)^2)
+  residual_sum_squares <- sum((actual - predicted)^2)
+  r_squared <- 1 - (residual_sum_squares / total_sum_squares)
+  return(r_squared)
+}
+
+# Function to encode categorical variables and combine with numeric data
+encode_and_combine <- function(data, target_var, cat_vars) {
+  encoded_data <- lapply(cat_vars, function(var) model.matrix(~ . - 1, data = data[, var, drop = FALSE]))
+  combined_data <- cbind(data[, !names(data) %in% c(target_var, cat_vars)], do.call(cbind, encoded_data))
+  return(as.matrix(combined_data))
+}
+
+# Split data into training and testing sets
+split_data <- function(data, ratio = 0.8) {
+  indices <- sample(1:nrow(data), size = ratio * nrow(data))
+  train_data <- data[indices, ]
+  test_data <- data[-indices, ]
+  list(train = train_data, test = test_data)
+}
+
+# Initialize dataframes for storing model performance
+model_perf <- data.frame(Model = character(), RMSE = numeric(), R2 = numeric(), stringsAsFactors = FALSE)
+
+# Split the data once
+data_split <- split_data(final_data)
+train_data <- data_split$train
+test_data <- data_split$test
+
+# Define variables
+target <- "rent"
+categorical_vars <- c("city", "animal", "furniture")
+numeric_vars <- c("area", "rooms", "bathroom", "parking.spaces", "floor", "hoa", "property_tax", "fire_insurance")
+
+# Encode categorical variables and combine with numeric data once
+train_x <- encode_and_combine(train_data, target, categorical_vars)
+test_x <- encode_and_combine(test_data, target, categorical_vars)
+train_y <- train_data$rent
+test_y <- test_data$rent
+```
+
+### **Testing penalized approaches**
+
+### Elastic Net Model
+
+The Elastic Net model is a type of linear regression that combines two regularization techniques: Lasso (L1) and Ridge (L2).
+This combination allows the model to perform feature selection and shrinkage, which helps in handling multicollinearity and prevents overfitting.
+The alpha parameter determines the mix between L1 and L2 penalties (alpha = 0.5 gives an equal mix of Lasso and Ridge).
+Elastic Net provides accurate predictions by preventing overfitting and capturing the essential patterns in the data.
+Effective management of the bias-variance tradeoff is critical in real estate forecasting, where overfitting can lead to poor predictions on unseen data.
+
+```{r, include=FALSE}
+# Elastic Net Model
+elastic_net <- cv.glmnet(train_x, train_y, alpha = 0.5, nfolds = 10)
+optimal_lambda <- elastic_net$lambda.min
+elastic_net_fit <- glmnet(train_x, train_y, alpha = 0.5, lambda = optimal_lambda)
+elastic_net_preds <- predict(elastic_net_fit, newx = test_x)
+elastic_net_rmse <- sqrt(mean((elastic_net_preds - test_y)^2))
+elastic_net_r2 <- calculate_r_squared(test_y, elastic_net_preds)
+model_perf <- rbind(model_perf, data.frame(Model = "Elastic Net", RMSE = elastic_net_rmse, R2 = elastic_net_r2))
+```
+
+In real estate data, predictor variables (e.g., area, hoa, property_tax) often exhibit multicollinearity, where some variables are highly correlated.
+The Elastic Net model mitigates this issue by regularizing the coefficients, thus preventing overfitting.
+By balancing L1 and L2 penalties, the Elastic Net model provides a robust approach to feature selection and coefficient shrinkage, leading to more stable and interpretable models.
+This ability to zero out coefficients helps in identifying the most important factors that influence rental prices, leading to simpler and more interpretable models.
+
+### **Testing non-linear approaches**
+
+### Generalized Additive Model (GAM)
+
+A Generalized Additive Model (GAM) is a type of statistical model that extends traditional linear models by allowing non-linear relationships between the predictor variables and the response variable.
+GAMs achieve this by using smoothing functions, which can model more complex and flexible patterns in the data without assuming a specific parametric form.
+GAMs offer flexibility in capturing complex relationships without overfitting, which is crucial in a diverse and varied field like real estate.
+
+```{r, include=FALSE}
+# Generalized Additive Models (GAM)
+gam_model <- gam(rent ~ s(hoa) + s(property_tax) + area + rooms + city + bathroom + floor + parking.spaces + fire_insurance + furniture, data = train_data)
+gam_preds <- predict(gam_model, newdata = test_data)
+gam_rmse <- sqrt(mean((gam_preds - test_y)^2))
+gam_r2 <- cor(gam_preds, test_y)^2
+model_perf <- rbind(model_perf, data.frame(Model = "GAM Splines", RMSE = gam_rmse, R2 = gam_r2))
+
+# GAM with Feature Engineering
+gam_model_fe <- gam(rent ~ s(hoa * property_tax) + s(area * rooms) + city + bathroom + floor + parking.spaces + s(fire_insurance) + furniture, data = train_data)
+gam_preds_fe <- predict(gam_model_fe, newdata = test_data)
+gam_rmse_fe <- sqrt(mean((gam_preds_fe - test_y)^2))
+gam_r2_fe <- cor(gam_preds_fe, test_y)^2
+model_perf <- rbind(model_perf, data.frame(Model = "GAM with Feature Engineering", RMSE = gam_rmse_fe, R2 = gam_r2_fe))
+```
+
+**With Feature Engineering:**\
+By including interactions and smoothing them, the model can capture more complex relationships.
+In real estate, relationships between predictors (e.g., area, number of rooms, HOA fees) and the target variable (rent) are often non-linear.
+For example, the effect of area on rent might increase more steeply for larger apartments but plateau for very large sizes.
+The use of smoothing functions provides a more nuanced understanding of how different factors influence rent, allowing for better interpretability compared to black-box models.
+Feature engineering with interactions and smoothing allows the model to capture complex patterns that might be missed by simpler models.
+By including interaction terms in the GAM, the model can account for these combined effects, providing a more comprehensive view of the determinants of rent.
+
+### Random Forest Model
+
+A Random Forest is an ensemble learning method that constructs multiple decision trees during training and outputs the average prediction of individual trees for regression tasks.
+It combines the strengths of multiple trees to create a robust model that typically performs better than a single decision tree.
+Comparing different Random Forest models, including those with and without certain features or with feature engineering, helps in identifying the best approach.
+Comparative analysis provides a deeper understanding of which model variations and feature sets lead to the most accurate and generalizable predictions.
+
+```{r, include=FALSE}
+# Random Forest Models
+rf_model <- randomForest(x = train_x, y = train_y, ntree = 500, mtry = 4)
+rf_preds <- predict(rf_model, newdata = test_x)
+rf_rmse <- sqrt(mean((rf_preds - test_y)^2))
+rf_r2 <- cor(rf_preds, test_y)^2
+model_perf <- rbind(model_perf, data.frame(Model = "Random Forest", RMSE = rf_rmse, R2 = rf_r2))
+
+# Random Forest without fire insurance variable
+train_x_nofire <- train_x[, !colnames(train_x) %in% "fire_insurance"]
+rf_model_nofire <- randomForest(x = train_x_nofire, y = train_y, ntree = 500, mtry = 4)
+rf_preds_nofire <- predict(rf_model_nofire, newdata = test_x)
+rf_rmse_nofire <- sqrt(mean((rf_preds_nofire - test_y)^2))
+rf_r2_nofire <- cor(rf_preds_nofire, test_y)^2
+model_perf <- rbind(model_perf, data.frame(Model = "Random Forest No Fire Insurance", RMSE = rf_rmse_nofire, R2 = rf_r2_nofire))
+
+# Random Forest with Feature Engineering
+train_data$area_rooms <- train_data$area * train_data$rooms
+train_data$hoa_property_tax <- train_data$hoa * train_data$property_tax
+test_data$area_rooms <- test_data$area * test_data$rooms
+test_data$hoa_property_tax <- test_data$hoa * test_data$property_tax
+
+fe_train_x <- encode_and_combine(train_data, target, categorical_vars)
+fe_test_x <- encode_and_combine(test_data, target, categorical_vars)
+fe_rf_model <- randomForest(x = fe_train_x, y = train_data$rent, ntree = 500, mtry = 4)
+fe_rf_preds <- predict(fe_rf_model, newdata = fe_test_x)
+fe_rf_rmse <- sqrt(mean((fe_rf_preds - test_data$rent)^2))
+fe_rf_r2 <- cor(fe_rf_preds, test_data$rent)^2
+model_perf <- rbind(model_perf, data.frame(Model = "Random Forest with Feature Engineering", RMSE = fe_rf_rmse, R2 = fe_rf_r2))
+
+# Random Forest with Hyperparameter Tuning
+rf_model_ht <- randomForest(x = fe_train_x, y = train_data$rent, ntree = 500, mtry = 8)
+rf_preds_ht <- predict(rf_model_ht, newdata = fe_test_x)
+rf_rmse_ht <- sqrt(mean((rf_preds_ht - test_data$rent)^2))
+rf_r2_ht <- cor(rf_preds_ht, test_data$rent)^2
+model_perf <- rbind(model_perf, data.frame(Model = "Random Forest with Feature Engineering & HT", RMSE = rf_rmse_ht, R2 = rf_r2_ht))
+```
+
+-   By excluding the fire_insurance variable, the model assesses how crucial this feature is in predicting rent. Understanding the impact of individual variables helps in refining the model and focusing on the most predictive features.
+-   Feature Engineering: Creates new features like area_rooms and hoa_property_tax to capture interactions between variables. Feature engineering can significantly enhance model performance by providing additional predictive power and capturing more complex patterns in the data.
+-   Hyperparameter Tuning: Hyperparameter tuning can lead to improved model performance, providing a more accurate and robust prediction of rental prices.
+
+Random Forests handle correlated predictors better than linear models, as the random feature selection helps in mitigating the multicollinearity issue.
+Random Forests can capture non-linear relationships and complex interactions between variables that are often present in real estate data.
+This ability makes Random Forests particularly useful for modeling rental prices, where the relationship between predictors and the target variable is not strictly linear.
+Random Forests provide insights into the importance of different features by evaluating their impact on the prediction accuracy.
+Feature importance scores help in identifying key drivers of rental prices, aiding in feature selection and understanding of the underlying factors influencing the market.
+
+### **Assessing the best model**
+
+The graph consists of two bar plots that display the performance of different models in terms of RMSE (Root Mean Square Error) and R-squared.
+
+```{r, echo=FALSE, fig.width=10, fig.height=6, fig.align='center'}
+# Ensure the performance dataframes are numeric
+model_perf$RMSE <- as.numeric(model_perf$RMSE)
+model_perf$R2 <- as.numeric(model_perf$R2)
+
+# Plot performance metrics
+rmse_plot <- ggplot(model_perf, aes(x = reorder(Model, RMSE), y = RMSE, fill = Model)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = round(RMSE, 2)), vjust = -0.5, size = 3) +
+  labs(title = "Model Performance - RMSE", y = "RMSE", x = "Model") +
+  theme_light(base_size = 13) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(fill = FALSE)
+
+r2_plot <- ggplot(model_perf, aes(x = reorder(Model, R2), y = R2, fill = Model)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = round(R2, 5)), vjust = -0.5, size = 3) +
+  labs(title = "Model Performance - R-squared", y = "R2", x = "Model") +
+  theme_light(base_size = 13) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(fill = FALSE)
+
+grid.arrange(rmse_plot, r2_plot, ncol = 2)
+```
+
+**Best Performing Models:** \
+- Top RMSE Performers: The models with the lowest RMSE values include the "Feature Engineering & HT," "Feature Eng AIC Model," and "GAM Splines." These models are more effective at minimizing prediction errors, indicating they can predict rental prices more accurately.
+\
+- Top R-Squared Performers: The "Feature Eng AIC Model" and "GAM Splines" also show high R-squared values, indicating that they explain a significant proportion of the variance in rental prices.
+
+Models that incorporated feature engineering, such as the "Random Forest with Feature Engineering" and "Feature Engineering & HT," performed well, suggesting that creating interaction terms and other derived features improves the model's ability to capture complex relationships in the data.
+In real estate, feature engineering can help to capture nuanced relationships between variables like property size and location, which can significantly impact rental prices.
+
+**Comparing Regular and Simplified Models:**\
+Models like the "Top 2 AIC Model" and "No fire_insurance AIC Model" have higher RMSE and lower R-squared values, indicating that they are less effective at predicting rental prices.
+Simpler models or models that exclude key variables might fail to capture the full complexity of the rental market, leading to poorer performance.
+
+**Effect of Regularization and Tuning:**\
+The "Elastic Net" model, which uses regularization to prevent overfitting, shows competitive performance.
+This model balances bias and variance by combining Lasso and Ridge regression techniques.
+Regularization techniques are crucial in preventing overfitting, especially in real estate data where the predictor variables might be highly correlated.
+
+Finally we can say that the rental market is influenced by numerous factors, including location, property characteristics, and economic conditions.
+Models that capture these complex relationships, like GAMs and Random Forests with feature engineering, are well-suited for predicting rental prices.
+Using advanced modeling techniques allows you to account for the complexity and variability in real estate data, leading to more accurate and reliable predictions.
+Choosing the right model based on performance metrics ensures that we have a reliable tool for predicting rental prices and understanding market dynamics.
+
+```{=tex}
+\bigskip
+\bigskip
+```
+## 6. Conclusions on the rent prediction models
+
+The graph represents the performance of various models in terms of RMSE (Root Mean Square Error) and R-squared values.
+Models are sorted by their R-squared values in descending order, allowing a clear comparison of how well each model explains the variability in the data.
+This comparative analysis helps identify the strengths and weaknesses of different modeling approaches and guides future model improvements by focusing on techniques that have shown better performance.
+
+```{r, include=FALSE}
+# Sort combined data frame by R² in descending order
+sorted_performance_df <- model_perf[order(-model_perf$R2), ]
+
+# Convert data to long format
+performance_long <- sorted_performance_df %>%
+  pivot_longer(cols = c(RMSE, R2), names_to = "Metric", values_to = "Value")
+
+# Create a table-like plot
+ggplot(performance_long, aes(x = Model, y = Metric, fill = Value)) +
+  geom_tile(color = "black") +
+  geom_text(aes(label = round(Value, 3)), size = 4) +
+  scale_fill_gradient(low = "lightblue", high = "blue") +
+  theme_minimal() +
+  labs(title = "Performance Metrics for Models",
+       x = "Model",
+       y = "Metric",
+       fill = "Value") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_x_discrete(limits = sorted_performance_df$Model)
+```
+
+```{r, echo=FALSE}
+knitr::kable(sorted_performance_df, caption = "Performances")
+#print(sorted_performance_df)
+```
+
+**Trend in RMSE Values:** \
+- The RMSE values range from approximately 226 to 1938.
+\
+- Lower RMSE values are observed in models like "Random Forest with Feature Engineering & HTT" and "GAM with Feature Engineering," indicating better predictive accuracy.
+\
+- Higher RMSE values are seen in models like "Random Forest No Fine Insurance" and "No More Insurance AIC Model," which suggests poorer predictive accuracy.
+
+**Trend in R² Values:** \
+- The R² values are high for most models, ranging from 0.572 to 0.994.
+Higher R² values indicate that these models explain a large portion of the variance in the data.
+\
+- Models like "Random Forest with Feature Engineering & HTT" and "GAM with Feature Engineering" have R² values close to 0.99, indicating excellent performance.
+\
+- Models like "No More Insurance AIC Model" with an R² of 0.572 explain less variance and are less reliable in predicting outcomes.
+
+**Patterns and insights:** \
+- Models involving "Feature Engineering" generally perform well, with low RMSE and high R² values, suggesting that including feature engineering improves model performance.
+\
+- "Random Forest" models show a significant range in performance.
+While "Random Forest with Feature Engineering & HTT" has one of the lowest RMSE and highest R² values, "Random Forest No Fine Insurance" has higher RMSE and lower R², indicating that important variables like fire_insurance have a significant impact on model accuracy, and their exclusion can lead to poorer predictive performance.
+\
+- Models labeled with "AIC Model" show varied performance.
+The "Top 2 AIC Model" performs relatively well, but the "No More Insurance AIC Model" has one of the highest RMSE values, indicating that in real estate, simplistic models might miss critical factors affecting property values, resulting in less accurate predictions.
+\
+- Geographical Factors: Segmenting the rental market by geographical location can yield valuable insights.
+Models with detailed geographical data (such as "Random Forest with Feature Engineering & HTT") performed well, suggesting that location-specific features are significant predictors of rental prices.
+
+In the end than we could say that...\
+Best Performing Model: "Random Forest with Feature Engineering & HTT" stands out with the lowest RMSE (226.064) and the highest R² (0.994).
+This model is exceptionally effective in minimizing prediction error and explaining variance.
+\
+Worst Performing Model: "No More Insurance AIC Model" has the highest RMSE (1938.126) and one of the lowest R² values (0.572).
+This indicates poor predictive performance and a lack of fit to the data.
+The analysis suggests a strong emphasis on detailed, data-driven approaches to understand rental price dynamics and segment the market effectively.
+The focus should then be on geographical segmentation, economic and demographic factors, and property features to guide investment decisions.
+By leveraging advanced models and comprehensive data, the company can better predict high rental revenue areas and optimize their real estate investment strategy.
+
+### **Real estate example**
+
+We use the first Rio de Janeiro house in the dataset to predict the rent using different models and compare the predictions to the actual rent amount.
+In doing so, we demonstrate how the models perform on unseen data.
+The house presents the following characteristics:
+
+```{r, include=FALSE}
+# Prediction House Rent Value
+
+new_house <- data.frame(
+  city = factor("Rio de Janeiro", levels = levels(train_data$city)),
+  area = 72,
+  rooms = 2,
+  bathroom = 1,
+  parking.spaces = 0,
+  floor = 7,
+  animal = factor("acept", levels = levels(train_data$animal)),
+  furniture = factor("not furnished", levels = levels(train_data$furniture)),
+  hoa = 740,
+  property_tax = 85,
+  fire_insurance = 25,
+  area_rooms = 2 * 72,
+  hoa_property_tax = 740 * 85
+)
+```
+
+```{r, echo=FALSE}
+knitr::kable(new_house, caption = "New House Example")
+#print(new_house)
+```
+
+In particular, it has a rent amount of 1900.
+
+```{r, include=FALSE}
+# Updated function to handle single-level factors correctly
+encode_and_combine2 <- function(data, target_var, cat_vars) {
+  encoded_data <- lapply(cat_vars, function(var) {
+    if (length(unique(data[, var])) > 1) {
+      model.matrix(~ . - 1, data = data[, var, drop = FALSE])
+    } else {
+      matrix(0, nrow = nrow(data), ncol = 1, dimnames = list(NULL, paste0(var, "_dummy")))
+    }
+  })
+  combined_data <- cbind(data[, !names(data) %in% c(target_var, cat_vars)], do.call(cbind, encoded_data))
+  return(as.matrix(combined_data))
+}
+
+
+# Encode the new house data
+new_house_encoded <- encode_and_combine(new_house, target, categorical_vars)
+
+
+# Predict rent using Random Forest with Feature Engineering & Hyperparameter Tuning
+predicted_rent <- predict(rf_model_ht, newdata = new_house_encoded)
+
+# Predictions using different models
+gam_pred <- predict(gam_model, newdata = new_house)
+gam_fe_pred <- predict(gam_model_fe, newdata = new_house)
+rf_pred <- predict(rf_model, newdata = new_house_encoded)
+rf_nofire_pred <- predict(rf_model_nofire, newdata = new_house_encoded)
+fe_rf_pred <- predict(fe_rf_model, newdata = new_house_encoded)
+rf_ht_pred <- predict(rf_model_ht, newdata = new_house_encoded)
+
+# Elastic Net predictions
+
+# Encode the new house data
+new_house_encoded <- encode_and_combine2(new_house, target, categorical_vars)
+# Ensure new_house_encoded has the same columns as train_x
+train_columns <- colnames(train_x)
+new_columns <- colnames(new_house_encoded)
+# Add missing columns with zero values
+missing_columns <- setdiff(train_columns, new_columns)
+for (col in missing_columns) {
+  new_house_encoded <- cbind(new_house_encoded, setNames(data.frame(matrix(0, nrow = nrow(new_house_encoded), ncol = 1)), col))
+}
+# Reorder columns to match train_x
+new_house_encoded <- new_house_encoded[, train_columns]
+# Convert to matrix if not already
+new_house_encoded <- as.matrix(new_house_encoded)
+
+# Predictions using different models
+elastic_net_pred <- predict(elastic_net_fit, newx = new_house_encoded)
+```
+
+```{r, echo=FALSE}
+# Display predictions
+
+predictions <- data.frame(
+  Model = c("GAM", "GAM with FE","Elastic Net", "Random Forest", "RF No Fire", "RF with FE", "RF with FE & HT", "Actual Rent"),
+  Predicted_Rent = c(gam_pred, gam_fe_pred,elastic_net_pred, rf_pred, rf_nofire_pred, fe_rf_pred, rf_ht_pred, 1900)
+)
+
+knitr::kable(predictions, caption = "New House Predictions")
+#print(predictions)
+
+#we used the first rio de janeiro house in the dataset to predict the rent using different models and the actual rent amount was in fact 1900, as we can see 
+#the random forest model with feature engineering and hyperparameter tuning was the one that predicted the closest value to the actual one, with a predicted rent of 1897.
+```
+
+-   Closest Prediction: The Random Forest model with feature engineering and hyperparameter tuning (RF with FE & HT) predicted the rent as 1897.092, which is the closest to the actual rent of 1900.
+-   Other Models: The predictions from other models, such as GAM, Elastic Net, and standard Random Forest, vary and are either higher or lower than the actual rent.
+-   Best Performance: The Random Forest with feature engineering and hyperparameter tuning (RF with FE & HT) demonstrated the best performance by predicting the rent closest to the actual value.
+-   GAM and Elastic Net: While these models provided reasonable estimates, their predictions were slightly higher, indicating that they might be overfitting or capturing additional complexity that isn't necessary for this specific prediction.
+-   Without Fire Insurance: The model excluding the fire_insurance variable (RF No Fire) predicted a significantly lower rent. This highlights the importance of including comprehensive features that capture the cost of living and property insurance.
+
+**Model Complexity and Generalization:** \
+- Hyperparameter Tuning: The addition of hyperparameter tuning (RF with FE & HT) improved the Random Forest model's accuracy, suggesting that fine-tuning model parameters can lead to better generalization and prediction performance.
+\
+- Elastic Net Regularization: The Elastic Net model, which balances between L1 and L2 regularization, provided a good estimate but slightly overestimated the rent.
+This indicates that while regularization helps in preventing overfitting, it may also lead to underfitting in some cases.
+
+The analysis highlights the importance of using advanced modeling techniques like Random Forests with feature engineering and hyperparameter tuning for accurate rent prediction in real estate.
+These models outperform simpler models by effectively capturing the complex relationships between various property features and their impact on rent.
+The results also underscore the value of comprehensive and detailed data, which is essential for making informed decisions in the real estate market.
+By leveraging these insights, real estate professionals can better understand market dynamics, set competitive rental prices, and make data-driven investment decisions.
+
+```{=tex}
+\bigskip
+\bigskip
+```
+## 7. Clustering analysis
+
+### **K-means clustering analysis**
+
+```{r, include=FALSE}
+# k-Means
+
+set.seed(123)
+
+# Scaling the numerical variables data
+numeric_vars1 <- c("area","rooms","bathroom","parking.spaces","floor",
+                   "hoa","property_tax","fire_insurance")
+data_scaled <- scale(final_data[,numeric_vars1])
+data_scaled <- as.data.frame(data_scaled)
+
+# Implementing the elbow method
+k_values <- 1:15  # Range of k values to consider
+withinss <- numeric(length(k_values))
+
+
+for (i in seq_along(k_values)) {
+  k <- k_values[i]
+  kmeans_result <- kmeans(data_scaled, centers = k)
+  withinss[i] <- kmeans_result$tot.withinss
+}
+
+# Plot the elbow curve
+elb <- ggplot() +
+  geom_line(aes(x = k_values, y = withinss), color = "purple") +
+  geom_point(aes(x = k_values, y = withinss), color = "purple") +
+  labs(x = "Number of Clusters k", y = "Within-cluster Sum of Squares") +
+  ggtitle("Elbow Method for Optimal k") +
+  theme_bw() +
+  theme(axis.line = element_line(colour = "black"), 
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank())
+
+# Silhouette score by k and elbow printed
+silk <- fviz_nbclust(data_scaled, kmeans, method = "silhouette") +
+  ggtitle("Silhouette Method for Optimal k") +
+  theme_minimal() + 
+  theme(plot.title = element_text(color = "black"),
+        axis.title = element_text(color = "black"),
+        axis.text = element_text(color = "black"),
+        legend.title = element_text(color = "black"),
+        legend.text = element_text(color = "black")) +
+  scale_color_manual(values = "magenta")
+```
+
+```{r, echo=FALSE}
+# Plot the two plots in a single grid
+grid.arrange(elb, silk, ncol = 2)
+```
+
+**ELBOW METHOD:** \
+The elbow plot shows the total within-cluster sum of squares (WSS) against the number of clusters (k).
+As k increases, the WSS decreases.
+This is expected because adding more clusters generally reduces the distance between points and their assigned cluster centers.
+The "elbow" point, where the rate of decrease in WSS sharply slows down, is around k = 3.
+This suggests that adding more clusters beyond 3 doesn't significantly improve the compactness of the clusters.
+\
+\
+**SILHOUETTE METHOD:** \
+The silhouette plot shows the average silhouette width for different numbers of clusters.
+The silhouette width measures how similar a point is to its own cluster compared to other clusters.
+A higher silhouette width indicates better-defined clusters.
+The highest average silhouette width is observed at k = 2.
+This suggests that the data forms well-defined clusters when divided into two groups.
+However, the silhouette width for k = 3 is also relatively high, indicating that three clusters might also be a reasonable choice.
+\
+\
+**Real Estate Context Application:** \
+- k = 2: The properties might be clustered into two broad categories, such as luxury vs. budget properties.
+\
+- k = 3: The clusters might represent three segments, such as luxury, mid-range, and budget properties.
+Understanding these clusters can help in setting competitive prices tailored to each segment.
+For example, properties in the luxury cluster can be priced higher due to their premium features.
+By clustering the properties, real estate analysts can better understand the market dynamics and the distribution of property types, helping in targeted marketing and sales strategies.
+
+```{r, include=FALSE}
+# Plotting with 2 clusters
+kmeans_model2 <- kmeans(data_scaled, centers = 2, nstart = 25)
+clus2 <- fviz_cluster(kmeans_model2, data = data_scaled, geom = "point", cluster = "kmeans_model2", main = paste("K-Means Clustering (k =", 2, ")"))
+
+# Plotting with 3 clusters
+kmeans_model3 <- kmeans(data_scaled, centers = 3, nstart = 25)
+clus3 <- fviz_cluster(kmeans_model3, data = data_scaled, geom = "point", cluster = "kmeans_model3", main = paste("K-Means Clustering (k =", 3, ")"))
+
+# Plotting with 4 clusters
+kmeans_model4 <- kmeans(data_scaled, centers = 4, nstart = 25)
+clus4 <- fviz_cluster(kmeans_model4, data = data_scaled, geom = "point",
+                      main = paste("K-Means Clustering (k =", 4, ")"))
+```
+
+```{r, echo=FALSE}
+# Plotting the results
+grid.arrange(clus2, clus3, ncol = 2)
+```
+
+**k = 2 Clusters:\
+**The two clusters are well-separated, indicating distinct groupings in the data.
+Cluster 1 (red) appears to have higher values along the second dimension (Dim2), suggesting it might represent properties with higher values for certain features.
+Cluster 2 (blue) likely represents the remaining properties, which could be more common or lower-value.
+Therefore in real estate, These two clusters might reflect a broad segmentation of the real estate market into high-value and standard properties.
+
+**k = 3 Clusters:** \
+The addition of a third cluster introduces another grouping (green), which provides more granularity.
+The clusters are fairly well-separated, with some overlap between Cluster 2 and Cluster 3.
+Cluster 1 (red) remains similar, representing properties with distinct characteristics or higher values.
+Cluster 2 (green) and Cluster 3 (blue) could represent a further subdivision of the more common properties, perhaps splitting them into mid-range and budget segments.
+This can help in more refined market segmentation, allowing for more precise targeting of customer segments and better-informed investment decisions.
+
+**Comparisons between the two clusters divisions:** \
+With k=2, the division is simpler and might be easier to interpret for broad market analysis.
+With k=3, the segmentation is more detailed, providing deeper insights into the property market.
+The analysis of k=2 and k=3 clustering shows that both provide valuable insights into the real estate market.
+The choice between them depends on the level of detail required.
+For high-level market segmentation, k=2 is sufficient, while k=3 offers more granular insights that can guide detailed pricing and marketing strategies.
+Both approaches are useful in identifying property segments that can be targeted for specific strategies, improving decision-making in the real estate industry.
+
+```{r, echo=FALSE}
+# Printing the number of houses in each cluster
+#print("Number of houses in each cluster, with k = 2:")
+two <- table(kmeans_model2$cluster)
+knitr::kable(two, caption = "Number of houses in each cluster, with k = 2:")
+
+#print("Number of houses in each cluster, with K = 3:")
+three <- table(kmeans_model3$cluster)
+knitr::kable(three, caption = "Number of houses in each cluster, with K = 3:")
+
+# table(kmeans_model4$cluster)
+```
+
+We determined the number of houses in each cluster after applying k-Means clustering with different numbers of clusters (k).
+
+For k = 2 Clusters: Cluster 1: 7,114 houses - Cluster 2: 2,947 houses
+
+For k = 3 Clusters: Cluster 1: 5,468 houses - Cluster 2: 2,985 houses - Cluster 3: 1,608 houses
+
+As the number of clusters increases, the houses are distributed across more groups, leading to a more granular segmentation of the dataset.
+Initially, with fewer clusters, each cluster contains a large number of houses, representing broader market segments.
+The sizes of the clusters vary significantly, indicating that some segments of the market are much larger than others.
+This is typical in real estate, where certain types of properties might dominate the market.
+By understanding the distribution of houses across clusters, real estate professionals can develop targeted marketing campaigns for different property segments.
+Identifying clusters helps in setting appropriate pricing for different segments.
+For example, properties in smaller clusters might command higher prices if they are identified as luxury or unique segments.
+Clusters with fewer houses might represent niche markets with high potential for growth, guiding investment strategies.
+The clustering results provide a clear view of the segmentation within the real estate market, helping to identify broad and niche segments.
+This information is crucial for making informed decisions related to marketing, pricing, and investment.
+Understanding the distribution of properties across clusters enables real estate professionals to tailor their strategies effectively to meet market demands.
+
+### **Hierarchical clustering analysis**
+
+```{r, include=FALSE}
+# Hierarchical Clustering
+
+dist_matrix <- dist(data_scaled, method = "euclidean")
+hc_model <- hclust(dist_matrix, method = "ward.D2")
+
+# Dendrogram
+plot(hc_model, cex = 0.6, main = "Dendrogram (Euclidean distance)")
+```
+
+```{r, include=FALSE}
+
+# Visualizing Hierarchical Clusters
+hc_clusters2 <- cutree(hc_model, k = 2)
+hc_plot2 <- fviz_cluster(list(data = data_scaled, cluster = hc_clusters2),
+                         geom = "point", main = paste("Hierarchical Clusters (k =", 2, ")"))
+
+# Visualizing Hierarchical Clusters
+hc_clusters3 <- cutree(hc_model, k = 3)
+hc_plot3 <- fviz_cluster(list(data = data_scaled, cluster = hc_clusters3),
+                         geom = "point", main = paste("Hierarchical Clusters (k =", 3, ")"))
+
+# Visualizing Hierarchical Clusters
+hc_clusters4 <- cutree(hc_model, k = 4)
+hc_plot4 <- fviz_cluster(list(data = data_scaled, cluster = hc_clusters4),
+                         geom = "point", main = paste("Hierarchical Clusters (k =", 4, ")"))
+
+```
+
+```{r,echo=FALSE}
+# Plotting the results
+grid.arrange(hc_plot2, hc_plot3, ncol = 2)
+```
+
+We performed also hierarchical clustering on a dataset and visualizes the clusters for k=2 and k=3.
+
+**Hierarchical Clusters (k = 2):\
+**Two distinct clusters are visible.
+One cluster is relatively small and compact (red), while the other is larger and more spread out (blue).
+The red cluster could represent a specific type of property, such as high-end or unique properties.
+The blue cluster likely represents a broader category, such as standard properties.
+That is the same thing experienced in the analysis before since we are in the real estate market.
+
+**Hierarchical Clusters (k = 3):** \
+With three clusters, the data is divided further, adding a new cluster (green) that represents a more granular division of the data.
+The three clusters likely represent different property segments, such as budget, mid-range, and luxury properties.
+The green cluster might indicate mid-range properties, providing a more detailed market segmentation.
+These interpretation are similar in fact to those of KNN models showing consistency between the two models.
+Real estate companies can allocate resources more effectively by focusing on dominant clusters for general strategies and dedicating specialized efforts to unique or smaller market segments.
+
+```{r,echo=FALSE}
+# Combining k-Means and Hierarchical Plots
+grid.arrange(clus2, hc_plot2, ncol = 2)
+# Combining k-Means and Hierarchical Plots
+grid.arrange(clus3, hc_plot3, ncol = 2)
+```
+
+**k-Means Clustering (k = 2):\
+**The k-Means algorithm divides the data into two clusters.
+\
+- Cluster 1 (red) is compact and concentrated at lower values along the first dimension (Dim1).
+\
+- Cluster 2 (blue) is larger and more spread out, encompassing a broader range of values along both dimensions.
+\
+The boundary between the clusters is defined by the nearest means, which is typical for k-Means clustering.
+
+**Hierarchical Clustering (k = 2):** \
+Hierarchical clustering also divides the data into two clusters.
+The clusters are similarly defined, with Cluster 1 (red) being compact and Cluster 2 (blue) being more spread out.
+However, the boundaries between clusters can appear different compared to k-Means because hierarchical clustering uses a different approach to forming clusters, based on distance measurements and a hierarchical merging process.
+
+**Comparisons:** \
+Both clustering methods result in two distinct clusters, but the shapes and boundaries differ.
+1.
+k-Means forms clusters by partitioning the space into cells based on the mean positions, leading to more circular cluster shapes.
+2.
+Hierarchical clustering can form clusters with more irregular shapes as it merges points based on the distance, which might better capture the natural structure of the data.
+
+**k-Means Clustering (k = 3):** \
+- Cluster 1 (Red): Compact cluster with lower values in both dimensions, indicating properties with smaller size and fewer features.
+\
+- Cluster 2 (Blue): Largest and most spread-out cluster, containing properties with a wide range of values, possibly representing mid-range properties.
+\
+- Cluster 3 (Green): Smaller cluster with a narrow range along the first dimension but spread along the second dimension, possibly representing a specific type of property with unique features.
+
+**Hierarchical Clustering (k = 3):** \
+- Cluster 1 (Red): Similar to k-Means, this cluster is compact and represents properties with lower values in both dimensions.
+\
+- Cluster 2 (Blue): More irregularly shaped than in k-Means, but still the largest cluster, indicating a diverse range of properties.
+\
+- Cluster 3 (Green): This cluster has a more distinct shape compared to k-Means, showing that hierarchical clustering can better capture non-spherical distributions and might represent properties with specific characteristics.
+
+**Comparisons:** \
+In k-Means clustering clusters tend to be more spherical or elliptical.
+The boundaries are influenced by the centroid positions, leading to simpler shapes.
+With hierarchical clustering, clusters can take on more complex, irregular shapes, capturing the natural structure of the data more flexibly.
+
+**k-Means is better.** \
+- Large Datasets: you have a large dataset and need efficient, quick clustering, that is indeed our case.
+\
+- Number of Clusters Known: you have a good idea about the number of clusters you need, since we need three clusters because of the market segmentation.
+\
+- Speed and Simplicity: you need a simple, fast solution for initial segmentation or when computational resources are limited, that can be useful for us to provide the fastest and better solution for the project.
+KNN, therefore, is ideal for large real estate datasets where quick segmentation is needed to identify broad market segments, helping in setting pricing strategies and marketing campaigns efficiently.
+
+```{=tex}
+\bigskip
+\bigskip
+```
+## 8. Cluster comparison
+
+### **Comparison by rent**
+
+```{r, include=FALSE}
+# Create new data frame with cluster information
+new_data <- final_data
+
+# Add cluster information to data
+new_data$cluster_kmeans <- kmeans_model3$cluster
+new_data$cluster_hierarchical <- hc_clusters3
+
+# Analyze and profile each cluster
+cluster_profiles <- new_data %>%
+  group_by(cluster_kmeans) %>%
+  summarise(across(c(area, rooms, bathroom, parking.spaces, hoa, property_tax, fire_insurance), mean),
+            count = n())
+```
+
+```{r, echo=FALSE}
+knitr::kable(cluster_profiles, caption = "Cluster Profiles Summary")
+```
+
+The table summarizes the characteristics of three clusters identified through k-Means clustering.
+Each cluster represents a distinct segment of rental properties with specific attributes.
+
+**Cluster 1:** \
+- Low-Cost Housing: Cluster 1 represents smaller, budget properties with fewer amenities and lower maintenance costs.
+\
+- Affordable Living: The lower HOA fees, property taxes, and insurance costs indicate that these properties are more affordable, likely appealing to low to middle-income tenants.
+\
+- Rental Market: This segment likely dominates the market due to its large size, indicating a high demand for budget-friendly rentals.
+\
+- Investment Potential: These properties may offer stable rental income with lower entry costs, making them attractive to investors looking for steady cash flow.
+\
+\
+**Cluster 2:** \
+- Balanced Offerings: Cluster 3 represents mid-range properties with moderate sizes and amenities, appealing to middle-class tenants.
+\
+- Moderate Costs: The HOA fees, property taxes, and insurance costs are moderate, reflecting a balance between affordability and quality.
+\
+- Growing Segment: This segment is substantial in size, indicating a significant portion of the rental market, catering to tenants looking for a balance between cost and comfort.
+\
+- Investment Perspective: Mid-range properties offer a good compromise between cost and return, making them an attractive option for investors seeking balanced portfolios.
+Investors can diversify their portfolios by targeting different clusters.
+Budget properties offer stability and lower risk, luxury properties promise high returns, and mid-range properties provide a balanced investment option with moderate returns and risk.
+Policymakers and developers can use these insights to address housing needs.
+
+**Cluster 3:** \
+- High-End Segment: Cluster 2 represents luxury properties with large areas and more rooms, appealing to high-income tenants.
+\
+- High Maintenance: The significantly higher HOA fees, property taxes, and insurance costs reflect the premium nature of these properties, often located in desirable neighborhoods with upscale amenities.
+\
+- Exclusive Market: This cluster is smaller, indicating a niche market segment.
+These properties are likely to command high rental prices.
+\
+- Investment Opportunity: Despite higher costs, luxury properties can offer substantial returns through high rental income and potential for capital appreciation.
+
+Emphasizing affordable housing development can cater to the largest market segment, while also creating opportunities for luxury and mid-range developments to meet diverse demands.
+
+```{r, echo=FALSE}
+
+# Calculate average silhouette width for the chosen number of clusters
+sil_width <- silhouette(kmeans_model3$cluster, dist(data_scaled))
+mean_silhouette_width <- mean(sil_width[, 3])
+cat("Average Silhouette Width:", mean_silhouette_width, "\n")
+```
+
+The silhouette width is a measure of how similar an object is to its own cluster compared to other clusters.
+It ranges from -1 to 1, where: 1: Indicates that the object is well matched to its own cluster and poorly matched to neighboring clusters.
+0: Indicates that the object is on or very close to the decision boundary between two neighboring clusters.
+-1: Indicates that the object is misclassified and is actually closer to a neighboring cluster than to the cluster it is assigned to.
+This value suggests a moderate clustering structure, implying that while some points are well clustered, others are not as clearly defined: - An average silhouette width of approximately 0.27 indicates that the clusters are reasonably well formed, but there is room for improvement.
+The clusters are not tightly defined, and there may be overlap between clusters.
+- The clusters have some internal cohesion but are not entirely separated from each other.
+This suggests that while some data points fit well within their assigned clusters, others are close to the boundaries between clusters.
+- In the context of real estate data, a moderate silhouette width might indicate that the property characteristics used for clustering do not perfectly segment the market.
+There could be overlap in characteristics among different property types or areas, suggesting a diverse and interconnected market.
+
+```{r, echo=FALSE}
+new_data$rent <- final_data$`rent` # Ensure the rent column is named correctly
+
+# Calculate the mean rent for each cluster
+mean_rent_per_cluster <- new_data %>%
+  group_by(cluster_kmeans) %>%
+  summarise(mean_rent = mean(rent, na.rm = TRUE))
+
+knitr::kable(mean_rent_per_cluster, caption = "Mean Rent per Cluster")
+```
+
+The table shows the mean rent for each cluster identified through k-Means clustering.
+This information is crucial for understanding the rental market segmentation and making informed decisions regarding pricing, marketing, and investment.
+- Cluster 1, Budget Properties: This cluster represents properties with the lowest average rent.
+The low mean rent suggests that these are budget-friendly properties, typically smaller in size, fewer amenities, and possibly located in less prime areas.
+- Cluster 2, Mid-Range Properties: The mean rent for this cluster falls between the budget and luxury segments.
+These properties are likely mid-sized with moderate amenities, making them suitable for middle-income tenants seeking a balance between cost and quality.
+Mid-range segment catering to tenants looking for better living standards without the premium costs.
+- Cluster 3, Luxury Properties: his cluster has the highest mean rent, indicating that it comprises luxury properties with larger areas, more rooms, and additional amenities such as parking spaces.
+These properties are likely located in premium areas with higher HOA fees, property taxes, and insurance costs.
+This cluster appeals to high-income tenants looking for premium housing options.
+
+```{r, echo=FALSE}
+# Create a boxplot to compare the rent distribution across clusters
+boxplot_rent <- ggplot(new_data, aes(x = factor(cluster_kmeans), y = rent)) +
+  geom_boxplot(fill = "magenta", color = "black") +
+  labs(x = "Cluster", y = "Rent (R$)", title = "Rent Distribution by Cluster") +
+  theme_minimal()
+
+print(boxplot_rent)
+```
+
+The boxplot illustrates the distribution of rental prices across three clusters.
+Each cluster represents a distinct segment of the rental market, identified through k-Means clustering.
+
+**Cluster 1: Budget Properties** \
+- Median Rent: The median rent for Cluster 1 is the lowest among the three clusters.
+\
+- IQR: The rent distribution is narrow, indicating low variability in rental prices within this cluster.
+\
+- Outliers: There are some high outliers, suggesting that while most properties are budget-friendly, a few might be priced higher due to unique features or locations.
+
+**Cluster 2: Mid-Range Properties ** \
+- Median Rent: The median rent for Cluster 2 is moderate, falling between Clusters 1 and 3.
+\
+- IQR: The rent distribution is also moderate, indicating a balance in rental prices and variability.
+\
+- Outliers: There are fewer high outliers compared to Cluster 3, suggesting that mid-range properties maintain more consistent rental prices.
+
+**Cluster 3: Luxury Properties ** \
+- Median Rent: Cluster 3 has the highest median rent, indicating it represents the luxury segment.
+\
+- IQR: The rent distribution is broad, showing significant variability in rental prices.
+This suggests a range of luxury properties with diverse amenities and features.
+\
+- Outliers: Numerous high outliers indicate properties with exceptionally high rents, likely due to prime locations or exclusive features.
+
+The boxplot provides valuable insights into the distribution of rental prices across different market segments.
+Each cluster represents a distinct profile, offering opportunities for targeted investment, pricing, and marketing strategies in the real estate market.
+Understanding these clusters helps in making informed decisions that align with the diverse needs of tenants and investors.
+
+**ANOVA ANALYSIS:** \
+
+```{r, echo=FALSE}
+# Perform ANOVA to test rent differences for k-means clusters
+anova_kmeans <- aov(rent ~ factor(cluster_kmeans), data = new_data)
+print("ANOVA Results for k-Means Clusters:")
+summary(anova_kmeans)
+
+```
+
+```{r, echo=FALSE}
+# Perform ANOVA to test rent differences for hierarchical clusters
+anova_hc <- aov(rent ~ factor(cluster_hierarchical), data = new_data)
+print("ANOVA Results for Hierarchical Clusters:")
+summary(anova_hc)
+
+```
+
+The ANOVA (Analysis of Variance) results test the differences in rental prices across clusters identified by hierarchical and k-Means clustering methods.
+Cluster Comparison Effectiveness: k-Means Clustering: The higher F value and sum of squares for k-Means clustering indicate that this method provides a more distinct separation of rental prices among clusters.
+This suggests that k-Means clustering is more effective in segmenting the rental market by distinguishing between properties with different rental values.
+The higher mean square value further emphasizes that k-Means clusters capture a larger portion of the variability in rental prices, making it more suitable for understanding the rental market dynamics.
+Hierarchical Clustering:
+
+Hierarchical clustering also shows significant differences in rental prices between clusters but to a lesser extent than k-Means.
+It suggests that while hierarchical clustering provides a meaningful segmentation, it might not capture the rental price variations as distinctly as k-Means.
+
+Market Segmentation: k-Means Clustering: More effective in identifying distinct market segments in the rental market, which is critical for targeted marketing, pricing, and investment strategies.
+Can be used to clearly identify luxury, mid-range, and budget segments, enabling better decision-making and strategy formulation.
+Hierarchical Clustering: Useful for exploratory analysis and understanding the hierarchical structure of the rental market.
+Helps in identifying subtle differences in the market that may not be as pronounced but still relevant for a more granular analysis.
+
+Pricing and Investment Strategies: k-Means Clustering: The clear separation of clusters suggests that rental properties can be priced and marketed according to well-defined segments.
+Luxury properties can command higher rents, while budget properties can be offered at competitive prices to attract more tenants.
+Investors can leverage the distinct clusters to focus on specific market segments with clear expectations of rental income and market positioning.
+Hierarchical Clustering: Provides insights into the gradation of the rental market, which can help in pricing properties along a continuum rather than in distinct steps.
+Useful for identifying opportunities for niche investments where properties might straddle between segments, offering potential for higher returns through targeted improvements or repositioning.
+
+Both k-Means and hierarchical clustering show significant differences in rental prices across clusters, with k-Means providing more distinct and effective segmentation.
+This suggests that k-Means clustering might be more suitable for applications requiring clear market segmentation, such as pricing strategies and targeted investments.
+
+**COMPARISONS BY RENT AND CITY:** \
+
+```{r, include=FALSE}
+# Create a boxplot for rent by cluster and city
+custom_colors <- c("magenta", "blue", "green")
+
+boxplot_plot <- ggplot(new_data, aes(x = interaction(cluster_kmeans, city), 
+                                     y = rent, fill = as.factor(cluster_kmeans))) +
+  geom_boxplot(color = "black") +
+  labs(x = "Cluster and City", y = "Rent (R$)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 8),
+        plot.title = element_text(size = 12)) +
+  ggtitle("Rental Prices by City and Cluster") +
+  scale_fill_manual(values = custom_colors) +  # Apply custom colors
+  theme(legend.position = "none")
+```
+
+```{r, echo=FALSE}
+print(boxplot_plot)
+```
+
+The boxplot visualizes the distribution of rental prices across different cities and clusters.
+
+**Rental Price Variation by Cluster:** \
+- Cluster 1 (Magenta): Generally shows lower rental prices across all cities.
+This cluster likely represents lower-value or budget properties.
+\
+- Cluster 2 (Blue): Displays mid-range rental prices, suggesting mid-range properties.
+\
+- Cluster 3 (Green): Shows the highest rental prices, indicating that this cluster likely contains high-value or luxury properties.
+\
+
+**City Insights:** \
+- Belo Horizonte: Rental prices vary significantly across clusters.
+Cluster 3 (green) has the highest median rental prices, indicating a presence of luxury properties.
+Cluster 1 (magenta) has the lowest prices, representing budget properties.
+\
+- Campinas: Similar trends are observed, with Cluster 3 (green) showing high rental prices, while Cluster 1 (magenta) indicates budget properties.
+Cluster 2 (blue) represents a middle ground.
+\
+- Porto Alegre: Also shows a distinct separation of rental prices by clusters, with Cluster 3 (green) having the highest prices.
+\
+- Rio de Janeiro: Cluster 3 (green) continues to dominate with high rental prices, indicating a significant luxury property segment.
+\
+- São Paulo: Displays a broad range of rental prices within clusters.
+Cluster 3 (green) again has the highest prices, highlighting the presence of premium properties.
+
+The distinct separation of rental prices by cluster within each city highlights the effectiveness of the clustering approach in identifying different market segments.
+This is crucial for targeted marketing and pricing strategies.
+Understanding the rental price distribution across clusters helps in setting competitive rental prices.
+For example, properties in Cluster 3 (green) can be positioned as premium rentals with higher price points.
+The visualization helps identify high-value clusters across cities, guiding investors towards segments with higher rental yields.
+Conversely, it highlights budget property clusters, which might offer opportunities for value investments or developments.
+The comparison across cities shows that luxury properties (Cluster 3) command high rental prices in all cities.
+This information is useful for understanding regional variations in rental markets and making informed investment decisions.
